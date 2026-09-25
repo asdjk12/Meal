@@ -1,0 +1,8 @@
+- insert:
+    - id: meal-inventory-tool
+      name: './inventory-tool.ts'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+  config:
+    mode: native

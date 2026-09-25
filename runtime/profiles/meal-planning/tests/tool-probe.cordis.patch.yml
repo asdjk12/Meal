@@ -1,0 +1,3 @@
+- insert:
+    - id: meal-inventory-tool-test-probe
+      name: './tool-probe.ts'
