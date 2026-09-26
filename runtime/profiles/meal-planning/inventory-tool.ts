@@ -1,60 +1,15 @@
 /**
- * DSH Cordis plugin that exposes the current Meal inventory as a native Tool.
- * The fixed inventory keeps the first Tool Calling verification deterministic.
+ * Compatibility entry point for the Meal Profile's native V1 Tool catalog.
+ * The Cordis patch keeps this historical filename while the implementation is
+ * split into data and planning modules.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { mealTools } from './meal-tools.ts'
 
-export const name = 'meal-inventory-tool'
+export const name = 'meal-planning-tools'
 export const inject = ['tools']
 
-/** Register the read-only inventory Tool with the DSH Tool registry. */
+/** Register the complete deterministic V1 Tool catalog. */
 export function apply(ctx: Context): void {
-  ctx.tools.register(defineTool({
-    name: 'get_inventory',
-    description: 'Return the ingredients currently available to the user.',
-
-    // This read-only Tool accepts no model arguments.
-    parameters: {},
-
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          items: {
-            type: 'array',
-            required: true,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                ingredient: { type: 'string', required: true },
-                quantity: { type: 'number', required: true },
-                unit: { type: 'string', required: true },
-              },
-            },
-          },
-        },
-      },
-
-      // Project the structured result into model-visible Tool content.
-      render: (_args, value) => [{
-        type: 'text',
-        text: JSON.stringify(value),
-      }],
-    },
-
-    // Fixed data makes the initial Agent-to-Tool chain reproducible.
-    async execute() {
-      return {
-        items: [
-          { ingredient: 'chicken_breast', quantity: 300, unit: 'g' },
-          { ingredient: 'eggs', quantity: 6, unit: 'count' },
-          { ingredient: 'broccoli', quantity: 1, unit: 'count' },
-          { ingredient: 'milk', quantity: 500, unit: 'ml' },
-        ],
-      }
-    },
-  }))
+  for (const tool of mealTools) ctx.tools.register(tool)
 }
