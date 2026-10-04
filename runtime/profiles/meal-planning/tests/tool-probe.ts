@@ -4,6 +4,9 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { createHash } from 'node:crypto'
+import { createGetPricesTool } from '../meal-data-tools.ts'
+import type { PriceProvider } from '../providers/contracts/price-provider.ts'
 
 export const name = 'meal-inventory-tool-test-probe'
 export const inject = ['tools']
@@ -18,7 +21,25 @@ const expectedToolNames = [
   'validate_meal_plan',
 ] as const
 
+const frozenDataToolContractHashes = {
+  get_inventory: '283a8231de0f9afc44f47009049a86aaf3a62b09b63bd5164d4bfa97add49306',
+  search_recipes: '261e280d9078f197b247697270b3ed385b88f8f580eafcaf1b46028629d59ea5',
+  get_nutrition: '6163e88d2dc4397fe64799a0d609068b4f8d6958f67361e84675663f0f0d8600',
+  get_prices: 'c5be917e48a96e3336826afa1603cdbd579ed4bb5ab0dacf8cd7069171a3a88d',
+  get_schedule: '992680dcdc0ca6306c6bca895520e2754bf9fe523a32a492fb9dc125fb9a5936',
+} as const
+
 type JsonObject = Record<string, JsonValue>
+
+function contractHash(tool: ReturnType<Context['tools']['get']>): string {
+  if (!tool) throw new Error('Cannot hash a missing Tool')
+  return createHash('sha256').update(JSON.stringify({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    outputSchema: tool.output.schema,
+  })).digest('hex')
+}
 
 function requireObject(value: JsonValue | undefined, label: string): JsonObject {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -189,6 +210,53 @@ export async function apply(ctx: Context): Promise<void> {
     throw new Error('Meal planning failures do not use the V0.2 contract')
   }
 
+  const expectedDataErrors: Array<[string, JsonObject, string]> = [
+    ['search_recipes', { include_ingredients: ['dragonfruit'] }, 'INGREDIENT_NOT_FOUND'],
+    ['get_nutrition', { item_type: 'ingredient', item_ids: ['dragonfruit'] }, 'NUTRITION_NOT_FOUND'],
+    ['get_prices', { ingredient_ids: ['dragonfruit'] }, 'PRICE_NOT_FOUND'],
+    ['get_schedule', { days: 4 }, 'SCHEDULE_RANGE_UNAVAILABLE'],
+  ]
+  for (const [toolName, args, expectedCode] of expectedDataErrors) {
+    const failed = (await executeTool(ctx, toolName, args)).result
+    const error = requireObject(failed.error, `${toolName} expected error`)
+    if (failed.success !== false || error.code !== expectedCode) {
+      throw new Error(`${toolName} changed its V0.2 error semantics`)
+    }
+  }
+
+  const fakePriceProvider: PriceProvider = {
+    getPrices: ingredientIds => ingredientIds.map(ingredient_id => ({
+      ingredient_id,
+      package_quantity: 1,
+      package_unit: 'count',
+      price_cny: 99,
+      in_stock: true,
+    })),
+  }
+  const registeredPriceTool = ctx.tools.get('get_prices')
+  if (!registeredPriceTool) throw new Error('get_prices is not registered')
+  const fakePriceTool = createGetPricesTool(fakePriceProvider)
+  const fakePriceValue = await fakePriceTool.execute({ ingredient_ids: ['eggs'] }, undefined as never) as JsonValue
+  const fakePriceResult = requireObject(fakePriceValue, 'fake get_prices result')
+  const fakePriceData = requireObject(fakePriceResult.data, 'fake get_prices data')
+  const fakePrices = requireArray(fakePriceData.prices, 'fake prices')
+  const fakeFirstPrice = requireObject(fakePrices[0], 'fake first price')
+  if (registeredPriceTool.name !== fakePriceTool.name
+    || JSON.stringify(registeredPriceTool.parameters) !== JSON.stringify(fakePriceTool.parameters)
+    || JSON.stringify(registeredPriceTool.output.schema) !== JSON.stringify(fakePriceTool.output.schema)
+    || fakeFirstPrice.price_cny !== 99) {
+    throw new Error('PriceProvider could not be swapped behind the unchanged get_prices contract')
+  }
+
+  const contractHashes = Object.fromEntries(expectedToolNames.slice(0, 5).map((toolName) => {
+    return [toolName, contractHash(ctx.tools.get(toolName))]
+  }))
+  for (const [toolName, expectedHash] of Object.entries(frozenDataToolContractHashes)) {
+    if (contractHashes[toolName] !== expectedHash) {
+      throw new Error(`${toolName} changed its frozen V0.2 public contract`)
+    }
+  }
+
   const marker = [
     `MEAL_TOOL_CATALOG_OK ${JSON.stringify({ names: expectedToolNames })}`,
     `MEAL_TOOL_CONTRACT_OK ${JSON.stringify({
@@ -205,6 +273,16 @@ export async function apply(ctx: Context): Promise<void> {
     `MEAL_TOOL_FAILURES_OK ${JSON.stringify({
       solver: infeasibleError.code,
       validator: 'ESTIMATED_COST_MISMATCH',
+    })}`,
+    `MEAL_ADAPTER_SWAP_OK ${JSON.stringify({
+      tool: fakePriceTool.name,
+      provider: 'fake',
+      priceCny: fakeFirstPrice.price_cny,
+      registryChanged: false,
+    })}`,
+    `MEAL_DATA_CONTRACT_REGRESSION_OK ${JSON.stringify({
+      tools: Object.keys(frozenDataToolContractHashes).length,
+      errors: expectedDataErrors.length,
     })}`,
     '',
   ].join('\n')
