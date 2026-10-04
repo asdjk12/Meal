@@ -122,7 +122,7 @@ TC-09 仍有 Agent 重复拆分价格查询的效率问题，但没有越过缺�
 
 ## Known Limitations
 
-- 按 Step 6 边界，Solver 的输入防伪比较与 Validator 的事实来源仍直接绑定本地 Fixture；后续应作为独立的 Domain Fact Source Refactor 处理。
+- 按 Step 6 边界，Solver 的输入防伪比较与 Validator 的事实来源仍直接绑定本地 Fixture；该技术债已记录在 [TODO.md](TODO.md)，接入真实数据 Provider 时作为独立的 Domain Fact Source Refactor 处理。
 - 当前 Factory 只支持 `local`，未实现真实 API、数据库或自动 fallback。
 - Provider trace 字段属于建议项，本阶段未增加 Agent-facing 输出或新的 Runtime trace 基础设施。
 - TC-07 的独立 setup 会受模型采样影响产生冗余调用；正式 TC-07 的 Solver/Validator 路径与结果已通过验收。
