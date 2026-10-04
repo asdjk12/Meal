@@ -89,6 +89,6 @@ test('V1 Meal Tools complete the deterministic planning and validation flow', ()
   const safeOutput = output.replace(/([?&]token=)[^\s]+/g, '$1<redacted>')
 
   assert.equal(result.status, 0, safeOutput || result.error?.message)
-  assert.match(output, /MEAL_TOOL_FLOW_OK \{"calls":7,"planId":"fixture-plan-v1","valid":true,"rendered":true\}/)
-  assert.match(output, /MEAL_TOOL_FAILURES_OK \{"solver":"NO_FEASIBLE_PLAN","validator":"PLAN_NOT_FOUND"\}/)
+  assert.match(output, /MEAL_TOOL_FLOW_OK \{"calls":7,"planId":"fixture-plan-v2","valid":true,"rendered":true\}/)
+  assert.match(output, /MEAL_TOOL_FAILURES_OK \{"solver":"NO_FEASIBLE_PLAN","validator":"ESTIMATED_COST_MISMATCH"\}/)
 })

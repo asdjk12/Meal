@@ -27,6 +27,11 @@ function requireObject(value: JsonValue | undefined, label: string): JsonObject 
   return value
 }
 
+function requireArray(value: JsonValue | undefined, label: string): JsonValue[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`)
+  return value
+}
+
 async function executeTool(
   ctx: Context,
   toolName: string,
@@ -98,60 +103,90 @@ export async function apply(ctx: Context): Promise<void> {
 
   const recipeResult = (await executeTool(ctx, 'search_recipes', {
     max_cook_minutes: 30,
-    include_ingredients: ['chicken_breast'],
     exclude_allergens: [],
     limit: 10,
   })).result
   const nutritionResult = (await executeTool(ctx, 'get_nutrition', {
-    item_type: 'ingredient',
-    item_ids: ['chicken_breast', 'milk'],
+    item_type: 'recipe',
+    item_ids: ['chicken_broccoli_rice', 'chicken_omelette', 'tofu_egg_bowl'],
   })).result
   const priceResult = (await executeTool(ctx, 'get_prices', {
-    ingredient_ids: ['rice', 'tofu'],
+    ingredient_ids: ['chicken_breast', 'eggs', 'broccoli', 'milk', 'rice', 'tofu'],
   })).result
   const scheduleResult = (await executeTool(ctx, 'get_schedule', { days: 3 })).result
+  const recipeData = requireObject(recipeResult.data, 'search_recipes data')
+  const nutritionData = requireObject(nutritionResult.data, 'get_nutrition data')
+  const priceData = requireObject(priceResult.data, 'get_prices data')
+  const scheduleData = requireObject(scheduleResult.data, 'get_schedule data')
+  const constraints = { days: 3, budget_cny: 180, min_daily_protein_g: 120, max_cook_minutes: 30 }
+  const planningInput = {
+    constraints,
+    inventory: value.data.items,
+    candidate_recipes: requireArray(recipeData.recipes, 'candidate recipes'),
+    nutrition_data: requireArray(nutritionData.items, 'recipe nutrition'),
+    price_data: requireArray(priceData.prices, 'ingredient prices'),
+    schedule: requireArray(scheduleData.days, 'schedule days'),
+  }
   const solveResult = (await executeTool(ctx, 'solve_meal_plan', {
-    days: 3,
-    budget_cny: 180,
-    min_daily_protein_g: 120,
-    max_cook_minutes: 30,
+    ...planningInput,
   })).result
   const solveData = requireObject(solveResult.data, 'solve_meal_plan data')
   const plan = requireObject(solveData.plan, 'solve_meal_plan plan')
   const planId = plan.plan_id
   if (typeof planId !== 'string') throw new Error('solve_meal_plan returned an invalid plan id')
   const validateResult = (await executeTool(ctx, 'validate_meal_plan', {
-    plan_id: planId,
+    plan,
+    constraints,
   })).result
 
-  const recipeData = requireObject(recipeResult.data, 'search_recipes data')
-  const nutritionData = requireObject(nutritionResult.data, 'get_nutrition data')
-  const priceData = requireObject(priceResult.data, 'get_prices data')
-  const scheduleData = requireObject(scheduleResult.data, 'get_schedule data')
   const validateData = requireObject(validateResult.data, 'validate_meal_plan data')
-  if (!Array.isArray(recipeData.recipes) || recipeData.recipes.length !== 2
-    || !Array.isArray(nutritionData.items) || nutritionData.items.length !== 2
-    || !Array.isArray(priceData.prices) || priceData.prices.length !== 2
+  if (!Array.isArray(recipeData.recipes) || recipeData.recipes.length !== 3
+    || !Array.isArray(nutritionData.items) || nutritionData.items.length !== 3
+    || !Array.isArray(priceData.prices) || priceData.prices.length !== 6
     || !Array.isArray(scheduleData.days) || scheduleData.days.length !== 3
-    || planId !== 'fixture-plan-v1'
-    || validateData.valid !== true) {
-    throw new Error('the deterministic V1 Tool flow returned unexpected data')
+    || planId !== 'fixture-plan-v2' || validateData.valid !== true
+    || validateData.validation_status !== 'verified') {
+    throw new Error('the deterministic V0.2 Tool flow returned unexpected data')
   }
 
-  const infeasibleResult = (await executeTool(ctx, 'solve_meal_plan', {
-    days: 3,
-    budget_cny: 50,
-    min_daily_protein_g: 120,
-    max_cook_minutes: 30,
+  const normalizedSearch = (await executeTool(ctx, 'search_recipes', {
+    include_ingredients: ['Chicken Breast'], max_cook_minutes: 30,
   })).result
-  const unknownPlanResult = (await executeTool(ctx, 'validate_meal_plan', {
-    plan_id: 'missing-plan',
+  const measuredNutrition = (await executeTool(ctx, 'get_nutrition', {
+    item_type: 'ingredient', item_ids: ['chicken_breast'], amount: 300, unit: 'g',
+  })).result
+  const searchItems = requireObject(normalizedSearch.data, 'normalized search data').recipes
+  const nutritionItems = requireObject(measuredNutrition.data, 'measured nutrition data').items
+  if (!Array.isArray(searchItems) || searchItems.length !== 2
+    || !Array.isArray(nutritionItems) || nutritionItems.length !== 1
+    || typeof nutritionItems[0] !== 'object' || nutritionItems[0] === null || Array.isArray(nutritionItems[0])
+    || nutritionItems[0].protein_g !== 93) {
+    throw new Error('search normalization or deterministic amount conversion failed')
+  }
+
+  let missingInputRejected = false
+  try {
+    await executeTool(ctx, 'solve_meal_plan', { constraints })
+  } catch (error) {
+    missingInputRejected = error instanceof Error && error.message.includes('missing required property')
+  }
+  if (!missingInputRejected) throw new Error('Solver accepted missing required planning data')
+
+  const infeasibleResult = (await executeTool(ctx, 'solve_meal_plan', {
+    ...planningInput,
+    constraints: { ...constraints, budget_cny: 20, min_daily_protein_g: 200 },
+  })).result
+  const invalidPlanResult = (await executeTool(ctx, 'validate_meal_plan', {
+    plan: { ...plan, estimated_cost_cny: 205 },
+    constraints,
   })).result
   const infeasibleError = requireObject(infeasibleResult.error, 'infeasible plan error')
-  const unknownPlanError = requireObject(unknownPlanResult.error, 'unknown plan error')
+  const invalidData = requireObject(invalidPlanResult.data, 'invalid plan result')
+  const violations = invalidData.violations
   if (infeasibleResult.success !== false || infeasibleError.code !== 'NO_FEASIBLE_PLAN'
-    || unknownPlanResult.success !== false || unknownPlanError.code !== 'PLAN_NOT_FOUND') {
-    throw new Error('Meal planning failures do not use the shared error contract')
+    || invalidData.valid !== false || !Array.isArray(violations)
+    || !violations.some(item => typeof item === 'object' && item !== null && !Array.isArray(item) && item.type === 'ESTIMATED_COST_MISMATCH')) {
+    throw new Error('Meal planning failures do not use the V0.2 contract')
   }
 
   const marker = [
@@ -169,7 +204,7 @@ export async function apply(ctx: Context): Promise<void> {
     })}`,
     `MEAL_TOOL_FAILURES_OK ${JSON.stringify({
       solver: infeasibleError.code,
-      validator: unknownPlanError.code,
+      validator: 'ESTIMATED_COST_MISMATCH',
     })}`,
     '',
   ].join('\n')

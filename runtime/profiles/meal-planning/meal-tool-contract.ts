@@ -22,6 +22,8 @@ const errorSchema = {
     code: { type: 'string', required: true },
     message: { type: 'string', required: true },
     retryable: { type: 'boolean', required: true },
+    missing: { type: 'array', items: { type: 'string' } },
+    conflicts: { type: 'array', items: { type: 'string' } },
   },
 } as const
 
@@ -61,7 +63,7 @@ export function mealResultSchema<const TDataSchema extends ValueSchemaSpec>(
 }
 
 /** Return a successful deterministic Fixture result. */
-export function mealSuccess<TData extends Record<string, JsonValue>>(data: TData) {
+export function mealSuccess<TData extends object>(data: TData) {
   return {
     success: true as const,
     data,
@@ -74,11 +76,11 @@ export function mealSuccess<TData extends Record<string, JsonValue>>(data: TData
 }
 
 /** Return a stable business failure without throwing through the DSH runtime. */
-export function mealFailure(code: string, message: string, retryable = false) {
+export function mealFailure(code: string, message: string, retryable = false, missing?: string[], conflicts?: string[]) {
   return {
     success: false as const,
     data: {},
-    error: { code, message, retryable },
+    error: { code, message, retryable, ...(missing ? { missing } : {}), ...(conflicts ? { conflicts } : {}) },
     metadata: {
       source: 'local-fixture' as const,
       fixtureVersion: 'v1' as const,

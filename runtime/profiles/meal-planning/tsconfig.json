@@ -15,6 +15,9 @@
       "@deepseek-ai/dsh-llm": [
         "../../../../DSH/_OriginalCode/packages/llm/llm/lib/types/index.d.ts"
       ],
+      "@deepseek-ai/dsh-system-prompt": [
+        "../../../../DSH/_OriginalCode/packages/core/system-prompt/lib/types/index.d.ts"
+      ],
       "@deepseek-ai/dsh-tools": [
         "../../../../DSH/_OriginalCode/packages/core/tools/lib/types/index.d.ts"
       ],

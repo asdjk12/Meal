@@ -1,0 +1,3 @@
+- insert:
+    - id: meal-step5-agent-probe
+      name: './step5-agent-runner.ts'

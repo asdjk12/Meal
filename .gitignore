@@ -1,2 +1,9 @@
 .venv
 DSH_OriginalCode
+/runtime/.anonymous-user-id
+/runtime/.credentials.yaml
+/runtime/logs/
+/runtime/sessions/
+/runtime/storages/
+/boundary_file
+/traces

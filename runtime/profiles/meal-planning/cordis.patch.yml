@@ -1,8 +1,14 @@
 - insert:
     - id: meal-inventory-tool
       name: './inventory-tool.ts'
+    - id: meal-agent-guidance
+      name: './meal-agent-guidance.ts'
 
 - id: tools
   name: '@deepseek-ai/dsh-tools'
   config:
     mode: native
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-08-13.1
