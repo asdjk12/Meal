@@ -8,6 +8,7 @@ import { createUserMessage } from '../../../../../DSH/_OriginalCode/packages/llm
 // @ts-expect-error Runtime-only path to the built DSH package.
 import { SessionId } from '../../../../../DSH/_OriginalCode/packages/core/session/lib/index.js'
 import { fixtureMealPlan, ingredientPrices } from '../meal-fixtures.ts'
+import { stateFlowForAgent } from '../meal-state-runtime.ts'
 
 export const name = 'meal-step5-agent-probe'
 export const inject = ['agents', 'tools']
@@ -24,7 +25,8 @@ const requests: Record<string, string> = {
   'TC-09': '给我规划包含鸡胸肉的三日计划。每天至少120g蛋白质，预算180元，每餐不超过30分钟。',
 }
 
-const traceDir = new URL('../../../../traces/step5_2/', import.meta.url)
+const traceSet = process.env.MEAL_TRACE_SET === 'step7' ? 'step7' : 'step5_2'
+const traceDir = new URL(`../../../../traces/${traceSet}/`, import.meta.url)
 type Handle = Awaited<ReturnType<Context['agents']['create']>>
 type Event = { type: string, data: any }
 
@@ -64,11 +66,34 @@ function traceFor(caseId: string, events: Event[]) {
 }
 
 async function runTurn(handle: Handle, caseId: string, traceName = caseId) {
+  const flow = stateFlowForAgent(handle.agent)
+  if (!flow) throw new Error('Meal State runtime was not installed for the Agent')
+  const stateBefore = flow.state.getState()
   const before = handle.agent.session.snapshotEvents().length
   handle.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: requests[caseId] }] }))
   await handle.agent.whenIdle()
   const trace = traceFor(caseId, handle.agent.session.snapshotEvents().slice(before))
+  const stateAfter = flow.state.getState()
+  Object.assign(trace, {
+    state_version_before: stateBefore.version,
+    state_version_after: stateAfter.version,
+    current_plan_id: stateAfter.currentPlan?.plan_id ?? null,
+    plan_validation_status: stateAfter.planValidationStatus,
+    state_traces: flow.state.getTraces().filter(item => item.state_version_before >= stateBefore.version),
+  })
   await writeFile(new URL(`${traceName}.json`, traceDir), `${JSON.stringify(trace, null, 2)}\n`, 'utf8')
+  if (caseId === 'TC-05' && (stateAfter.version !== 2 || stateAfter.planValidationStatus !== 'verified'
+    || JSON.stringify(stateAfter.shoppingList) !== JSON.stringify(stateAfter.currentPlan?.grocery_list))) {
+    throw new Error(`TC-05 did not commit to v2: ${JSON.stringify({ version: stateAfter.version,
+      validationStatus: stateAfter.planValidationStatus, tools: trace.actual_tools,
+      stateTraces: flow.state.getTraces() })}`)
+  }
+  if (caseId === 'TC-07' && (stateBefore.version !== 2 || stateAfter.version !== 3
+    || stateAfter.currentPlan?.days[1]?.meals.some(meal => meal.meal === 'dinner'))) {
+    throw new Error('TC-07 did not commit the State-sourced REMOVE_MEAL re-plan')
+  }
+  if (caseId === 'TC-08' && stateAfter.version !== 1) throw new Error('TC-08 overwrote the no-plan state')
+  if (caseId === 'TC-09' && stateAfter.version !== 1) throw new Error('TC-09 overwrote the missing-price state')
   process.stdout.write(`STEP5_CASE ${JSON.stringify({ caseId, actualTools: trace.actual_tools, failedCalls: trace.failed_calls, finalResult: trace.final_result, turnEndReason: trace.turn_end_reason })}\n`)
 }
 

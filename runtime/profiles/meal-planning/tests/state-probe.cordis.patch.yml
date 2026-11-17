@@ -1,0 +1,3 @@
+- insert:
+    - id: meal-state-probe
+      name: './state-probe.ts'
