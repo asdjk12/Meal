@@ -1,2 +1,8 @@
 requests>=2.31
 pillow>=10.0
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+# 图片识别（本地 YOLO）。torch 建议装 CPU 版，体积小很多：
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+ultralytics>=8.3

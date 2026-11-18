@@ -1,2 +1,5 @@
 .venv
 .tests
+__pycache__/
+# 模型权重体积大，不进 git
+weight/**/*.pt
